@@ -52,34 +52,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	var filename string
-	filename = os.Args[1]
-
-	/* can do in a single step with filename := os.Args[1] */
+	filename := os.Args[1]
 
 	if !strings.EqualFold(filepath.Ext(filename), ".smp") {
 		fmt.Println("Error: file must end in .smp")
 		os.Exit(1)
 	}
 
-	file, err := os.Open(filename)
-	if err != nil {
+	if err := convertFile(filename); err != nil {
 		log.Fatal(err)
 	}
-	defer file.Close() /* beautiful */
 
-	buf := make([]byte, 32) /* header, 32 bytes in total */
-	n, err := file.Read(buf)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("read header from", filename, "size of", n, "bytes")
+	fmt.Println("converted:", filename)
+}
 
+func parseSMPHeader(buf []byte) (SMPHeader, error) {
 	var header SMPHeader
+
 	copy(header.Magic[:], buf[0:4])
 
-	if header.Magic != [4]byte{'R', 'F', 'W', 'V'} { /* compare same type to avoid an error */
-		log.Fatal(filename, "is not a valid SMP file: bad magic bytes")
+	if header.Magic != [4]byte{'R', 'F', 'W', 'V'} {
+		return header, fmt.Errorf("not a valid SMP file: bad magic bytes")
 	}
 
 	header.DataSize = binary.BigEndian.Uint32(buf[4:8])
@@ -90,16 +83,10 @@ func main() {
 	fmt.Printf("Magic: %s, DataSize: %d, SampleRate: %d, Channels: %d, BitDepth: %d\n",
 		header.Magic, header.DataSize, header.SampleRate, header.Channels, header.BitDepth)
 
-	pcmData := make([]byte, header.DataSize)
-	_, err = file.Read(pcmData) /* we have read past buf (header) and are now reading data */
-	if err != nil {
-		log.Fatal(err)
-	}
+	return header, nil
+}
 
-	for i := 0; i < len(pcmData); i += 2 {
-		pcmData[i], pcmData[i+1] = pcmData[i+1], pcmData[i]
-	}
-
+func buildWAVHeader(header SMPHeader) []byte {
 	byteRate := header.SampleRate * header.Channels * (header.BitDepth / 8)
 	blockAlign := header.Channels * (header.BitDepth / 8)
 	chunkSize := 36 + header.DataSize
@@ -120,14 +107,52 @@ func main() {
 	copy(wavBuf[36:40], []byte("data"))                                   /* Subchunk2ID */
 	binary.LittleEndian.PutUint32(wavBuf[40:44], header.DataSize)         /* Subchunk2Size */
 
-	outFilename := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".wav"
+	return wavBuf
+}
 
+func swapByteOrder(data []byte) {
+	for i := 0; i < len(data); i += 2 {
+		data[i], data[i+1] = data[i+1], data[i]
+	}
+}
+
+func convertFile(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	buf := make([]byte, 32)
+	_, err = file.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	header, err := parseSMPHeader(buf)
+	if err != nil {
+		return err
+	}
+
+	pcmData := make([]byte, header.DataSize)
+	_, err = file.Read(pcmData)
+	if err != nil {
+		return err
+	}
+
+	swapByteOrder(pcmData)
+
+	wavBuf := buildWAVHeader(header)
+
+	outFilename := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".wav"
 	outFile, err := os.Create(outFilename)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer outFile.Close()
 
 	outFile.Write(wavBuf)
 	outFile.Write(pcmData)
+
+	return nil
 }
