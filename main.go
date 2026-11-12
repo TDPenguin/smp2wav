@@ -50,6 +50,7 @@ type WAVHeader struct {
 func main() {
 	inputDir := flag.String("i", "", "input directory containing .smp files")
 	outputDir := flag.String("o", "", "output directory for .wav files (defaults to input directory)")
+	verify := flag.Bool("verify", false, "verify PCM data matches between .smp and .wav")
 	flag.Parse()
 
 	filenames, err := resolveInput(*inputDir, flag.Args())
@@ -176,9 +177,12 @@ func convertFile(filename string, outputDir string) error {
 	defer file.Close()
 
 	buf := make([]byte, 32)
-	_, err = file.Read(buf)
+	n, err := file.Read(buf)
 	if err != nil {
 		return err
+	}
+	if n != 32 {
+		return fmt.Errorf("file too short to contain a valid header")
 	}
 
 	header, err := parseSMPHeader(buf)
@@ -187,9 +191,12 @@ func convertFile(filename string, outputDir string) error {
 	}
 
 	pcmData := make([]byte, header.DataSize)
-	_, err = file.Read(pcmData)
+	n, err = file.Read(pcmData)
 	if err != nil {
 		return err
+	}
+	if n != len(pcmData) {
+		return fmt.Errorf("expected %d bytes of PCM data, got %d", len(pcmData), n)
 	}
 
 	swapByteOrder(pcmData)
