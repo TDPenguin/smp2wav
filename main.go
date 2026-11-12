@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -47,23 +48,74 @@ type WAVHeader struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: smp2wav <file.smp>")
-		os.Exit(1)
-	}
+	inputDir := flag.String("i", "", "input directory containing .smp files")
+	outputDir := flag.String("o", "", "output directory for .wav files (defaults to input directory)")
+	flag.Parse()
 
-	filename := os.Args[1]
-
-	if !strings.EqualFold(filepath.Ext(filename), ".smp") {
-		fmt.Println("Error: file must end in .smp")
-		os.Exit(1)
-	}
-
-	if err := convertFile(filename); err != nil {
+	filenames, err := resolveInput(*inputDir, flag.Args())
+	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("converted:", filename)
+	if len(filenames) == 0 {
+		fmt.Println("Usage: smp2wav <file.smp> [file2.smp ...]  OR  smp2wav -i <file or dir> [-o <dir>]")
+		os.Exit(1)
+	}
+
+	processFiles(filenames, *outputDir)
+}
+
+func resolveInput(inputFlag string, positionalArgs []string) ([]string, error) {
+	var filenames []string
+
+	if inputFlag != "" {
+		info, err := os.Stat(inputFlag)
+		if err != nil {
+			return nil, err
+		}
+
+		if info.IsDir() {
+			entries, err := os.ReadDir(inputFlag)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".smp") {
+					filenames = append(filenames, filepath.Join(inputFlag, entry.Name()))
+				}
+			}
+		} else {
+			filenames = append(filenames, inputFlag)
+		}
+	} else {
+		filenames = positionalArgs
+	}
+
+	return filenames, nil
+}
+
+func processFiles(filenames []string, outputDir string) {
+	successCount := 0
+	failCount := 0
+
+	for _, filename := range filenames {
+		if !strings.EqualFold(filepath.Ext(filename), ".smp") {
+			fmt.Println("skipping:", filename)
+			continue
+		}
+
+		if err := convertFile(filename, outputDir); err != nil {
+			fmt.Println("error converting", filename, ":", err)
+			failCount++
+			continue
+		}
+
+		fmt.Println("converted:", filename)
+		successCount++
+	}
+
+	fmt.Printf("\nDone, %d converted, %d failed.\n", successCount, failCount)
 }
 
 func parseSMPHeader(buf []byte) (SMPHeader, error) {
@@ -116,7 +168,7 @@ func swapByteOrder(data []byte) {
 	}
 }
 
-func convertFile(filename string) error {
+func convertFile(filename string, outputDir string) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -144,8 +196,17 @@ func convertFile(filename string) error {
 
 	wavBuf := buildWAVHeader(header)
 
-	outFilename := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".wav"
-	outFile, err := os.Create(outFilename)
+	baseName := filepath.Base(filename)
+	outName := strings.TrimSuffix(baseName, filepath.Ext(baseName)) + ".wav"
+
+	var outPath string
+	if outputDir != "" {
+		outPath = filepath.Join(outputDir, outName)
+	} else {
+		outPath = filepath.Join(filepath.Dir(filename), outName)
+	}
+
+	outFile, err := os.Create(outPath)
 	if err != nil {
 		return err
 	}
