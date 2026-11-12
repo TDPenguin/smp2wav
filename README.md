@@ -23,11 +23,22 @@ PCM audio data follows.
 
 ## Usage
 
+Convert one or more specific files:
 ```bash
-go run main.go path/to/file.SMP
+go run main.go file1.SMP file2.SMP
 ```
 
-Outputs a `.wav` file alongside the input with the same name.
+Convert an entire folder:
+```bash
+go run main.go -i Input/
+```
+
+Convert a folder, writing output elsewhere:
+```bash
+go run main.go -i Input/ -o Output/
+```
+
+By default, output `.wav` files are written alongside their source `.SMP` files, unless `-o` is given.
 
 ## Requirements
 
