@@ -50,7 +50,6 @@ type WAVHeader struct {
 func main() {
 	inputDir := flag.String("i", "", "input directory containing .smp files")
 	outputDir := flag.String("o", "", "output directory for .wav files (defaults to input directory)")
-	verify := flag.Bool("verify", false, "verify PCM data matches between .smp and .wav")
 	flag.Parse()
 
 	filenames, err := resolveInput(*inputDir, flag.Args())
